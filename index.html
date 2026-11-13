@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>AHYET</title>
+<style>
+  :root { --ink:#3a2413; --card:#fffaf0; --accent:#b3172a; --bg:#ecca86; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; margin:0; overscroll-behavior:none; }
+  body { background:var(--bg); font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--ink);
+         display:flex; align-items:center; justify-content:center; overflow:hidden; }
+
+  /* the stage keeps the clips' 9:16 shape and fills the screen height */
+  .stage { position:relative; height:100dvh; max-height:100vh; aspect-ratio:9/16; max-width:100vw; overflow:hidden;
+           touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; cursor:grab; }
+  .stage.turning { cursor:grabbing; }
+  .stage video, .stage canvas { position:absolute; inset:0; width:100%; height:100%; display:block;
+           pointer-events:none; }
+  .stage video { object-fit:cover; }
+  .stage canvas.turn, .stage video.act { opacity:0; transition:opacity .12s linear; }
+  .stage .cut { transition:none !important; }       /* a straight cut: both pictures are the same frame */
+  #wait { z-index:1; }                      /* the opening: he hides at the edge until the first touch */
+  #wait { transition:opacity .3s linear; }
+  .stage.started #wait { opacity:0; }             /* the opening dissolves into the intro: no cut */
+  .stage:not(.started) .ig { display:none; }
+  .ig, #ink { z-index:2; }
+  .stage.turning canvas.turn, .stage video.act.on { opacity:1; }
+  #act-intro { transition:none; }
+
+  /* the name: hidden until he says it, then it smacks the glass and settles above his head */
+  .name { position:absolute; top:2.6%; left:50%; width:60%; height:auto; transform:translateX(-50%); opacity:0;
+          pointer-events:none; z-index:3; will-change:transform,opacity; }
+  .stage.named .name { opacity:1; }
+  .stage.smack .name { animation:smack 1.7s both; }
+  @keyframes smack {
+    0%   { opacity:0; transform:translate(-50%,40vh) scale(7) rotate(-14deg); animation-timing-function:cubic-bezier(.6,0,.9,.4); }
+    12%  { opacity:1; transform:translate(-50%,40vh) scale(1.5) rotate(-4deg); animation-timing-function:ease-out; }
+    17%  { opacity:1; transform:translate(-50%,40vh) scale(1.78,1.3) rotate(-4deg); animation-timing-function:ease-out; }
+    25%  { opacity:1; transform:translate(-50%,40vh) scale(1.5,1.62) rotate(-5deg); animation-timing-function:ease-in-out; }
+    33%  { opacity:1; transform:translate(-50%,40vh) scale(1.58) rotate(-4deg); animation-timing-function:ease-in-out; }
+    55%  { opacity:1; transform:translate(-50%,40vh) scale(1.62) rotate(-3deg); animation-timing-function:cubic-bezier(.5,0,.2,1); }
+    90%  { opacity:1; transform:translate(-50%,-1.2vh) scale(.96) rotate(1.5deg); animation-timing-function:ease-in-out; }
+    100% { opacity:1; transform:translate(-50%,0) scale(1) rotate(0); }
+  }
+  .stage.smack video, .stage.smack canvas.turn { animation:shake .42s .2s; }
+  @keyframes shake {
+    0%,100% { transform:none; } 15% { transform:translate(-1.6%,1.1%) scale(1.035); } 35% { transform:translate(1.3%,-.9%) scale(1.03); }
+    55% { transform:translate(-.9%,.6%) scale(1.02); } 78% { transform:translate(.5%,-.3%) scale(1.01); }
+  }
+  .flash { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; z-index:2; }
+  .stage.smack .flash { animation:flash .5s .2s; }
+  @keyframes flash { 0% { opacity:.7; } 100% { opacity:0; } }
+  @media (prefers-reduced-motion:reduce) { .stage.smack .name, .stage.smack video, .stage.smack .flash { animation:none; } }
+
+  .ig { position:absolute; right:4%; bottom:2.4%; width:42px; height:42px; border-radius:13px; display:grid;
+        place-items:center; background:var(--card); box-shadow:0 3px 10px rgba(58,36,19,.25); }
+  .ig svg { width:24px; height:24px; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <video id="idle" src="media/idle.mp4" poster="media/poster.jpg" muted loop playsinline preload="metadata"></video>
+  <video id="wait" src="media/wait.mp4" poster="media/wait-poster.jpg" autoplay muted loop playsinline></video>
+  <canvas class="turn" id="turn" width="432" height="768"></canvas>
+  <canvas id="ink"></canvas>
+
+  <div class="flash"></div>
+  <img class="name" src="media/name.png" alt="AHYET">
+
+  <a class="ig" id="ig" href="https://www.instagram.com/ahyet_513/" target="_blank" rel="noopener" aria-label="Instagram">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#b3172a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r="1" fill="#b3172a" stroke="none"/></svg></a>
+</div>
+
+<script>
+/* Hidden touches. Nothing on screen tells the visitor.            key on a computer
+   double tap             climbs the wall and roars     wall          1
+   draw a heart           romantic confession           love          2
+   tap his goggles        goggles down and up           goggles       3
+   4 or more fast taps    knocks on the glass           knock         4
+   shake the phone        dizzy                         dizzy         5
+   20 s with no touch     falls asleep, a touch wakes   sleep         6
+   swipe up               Muay Thai kick                kick          7
+   press and hold         belly laugh                   laugh         8
+   swipe down             empty pockets                 pockets       9
+   draw a circle          backflip                      flip          0
+   drag left or right     turn him round, the way the finger goes   (stills)
+   Sound: the intro and the love move carry their own music, so the page music stops for them. Every other move
+   has its own sound effects and plays over the music. The name shows only once he has said it.           */
+(function () {
+  var stage = document.getElementById('stage'), idle = document.getElementById('idle'),
+      turn = document.getElementById('turn'), ink = document.getElementById('ink'), ctx = ink.getContext('2d');
+  var NAMES = ['wall', 'love', 'goggles', 'knock', 'dizzy', 'sleep', 'kick', 'laugh', 'pockets', 'flip', 'intro'];
+  var SLEEP_AFTER = (+new URLSearchParams(location.search).get('sleep') || 20) * 1000;
+  var SLEEP_IN = 62 / 24, SLEEP_OUT = 126 / 24;      // inside sleep.mp4: asleep from frame 62, stirs from frame 126
+  // Every move clip ends exactly on one frame of the idle clip (tools/join_idle.py); the idle loop resumes
+  // from that frame, so going back to idle is a straight cut between two identical pictures: no dissolve.
+  var IDLE_AT = { wall: 3, goggles: 0, knock: 3, dizzy: 1, sleep: 47, kick: 0, laugh: 1, pockets: 142, flip: 4 };
+  var OWN_MUSIC = ['love', 'intro'];                  // these carry their own music: the page music stops for them
+  var NAME_AT = 38.0;                                 // seconds into the intro: he says "AHYET" at 38.2, the name lands on it
+  var acts = {}, acting = null, asleep = false, sleepTimer = null;
+  var introDone = new URLSearchParams(location.search).has('idle');
+
+  /* ---- page music: plays whenever he is idle or doing a move without music of its own ---- */
+  // The file is 0.5 s lead-in + a 16-bar loop + 0.5 s lead-out (tools/make_bgm.py); only the middle loops, so
+  // the loop point is exact whatever padding the mp3 decoder adds. Web Audio also lets the music fade on iPhones.
+  var AC = window.AudioContext || window.webkitAudioContext, actx = null, gain = null, bgmReady = false;
+  var BGM_PAD = 0.5, BGM_LOOP = 41.98168;
+  function bless() {                                  // inside a touch: phones only let sound start from one
+    if (actx) { if (actx.state !== 'running' && !document.hidden) actx.resume(); return; }
+    if (!AC) return;
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (err) {}   // iPhone: play even on silent
+    actx = new AC(); gain = actx.createGain(); gain.gain.value = 0; gain.connect(actx.destination);
+    fetch('media/bgm.mp3').then(function (r) { return r.arrayBuffer(); }).then(function (data) {
+      actx.decodeAudioData(data, function (buf) {
+        var src = actx.createBufferSource();
+        src.buffer = buf; src.loop = true; src.loopStart = BGM_PAD; src.loopEnd = BGM_PAD + BGM_LOOP;
+        src.connect(gain); src.start(0, BGM_PAD); bgmReady = true; setBgm();
+      }, function () {});
+    }).catch(function () {});
+  }
+  function wantBgm() { return introDone && !(acting && OWN_MUSIC.indexOf(acting.id.slice(4)) >= 0); }
+  function setBgm() {
+    if (!gain) return;
+    var on = wantBgm(), target = on ? (acting ? 0.5 : 1) : 0;
+    gain.gain.cancelScheduledValues(actx.currentTime);
+    gain.gain.setTargetAtTime(target, actx.currentTime, on ? 0.3 : 0.1);   // eases up, drops quickly
+  }
+  document.addEventListener('visibilitychange', function () {          // nothing plays on in a hidden tab
+    if (document.hidden) { if (actx) actx.suspend(); if (acting) acting.pause(); if (dozing) loopV.pause(); }
+    else { if (actx) actx.resume(); if (dozing) loopV.play(); else if (acting) acting.play(); }
+  });
+  window.__bgm = function () { return { state: actx && actx.state, gain: gain && +gain.gain.value.toFixed(2), ready: bgmReady }; };
+
+  NAMES.forEach(function (n) {                        // one hidden video per move, loaded ahead of time
+    var v = document.createElement('video');
+    v.className = 'act'; v.id = 'act-' + n; v.src = 'media/' + n + '.mp4';
+    v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.preload = n === 'intro' ? 'auto' : 'none';
+    stage.insertBefore(v, turn); acts[n] = v;
+    v.addEventListener('ended', endAct);
+  });
+
+  var loaded = false;
+  function loadMoves() {                              // the moves load one after another once the intro is running
+    if (loaded) return; loaded = true;
+    NAMES.filter(function (n) { return n !== 'intro'; }).forEach(function (n, i) {
+      setTimeout(function () { acts[n].preload = 'auto'; acts[n].load(); }, 400 + i * 700);
+    });
+    setTimeout(function () { loopV.preload = 'auto'; loopV.load(); }, 8000);
+    setTimeout(loadTurn, 1500);
+    idle.preload = 'auto';
+  }
+  var rawPlay = idle.play.bind(idle);                 // a pause right after a play is normal here, not an error
+  idle.play = function () { var p = rawPlay(); if (p && p.catch) p.catch(function () {}); return p; };
+
+  /* ---- play one move over the idle loop, then go back to idle ---- */
+  function play(name, force) {
+    var v = acts[name];
+    if (acting || !v || (!force && v.readyState < 2)) return false;
+    stopReturn(); leaveTurn(); clearTimeout(sleepTimer);
+    v.muted = false;                                  // every move has sound
+    acting = v; v.currentTime = 0; v.classList.add('on');
+    asleep = (name === 'sleep');
+    var p = v.play();
+    if (p && p.catch) p.catch(function () {           // a phone may refuse sound outside a touch: play it silent instead
+      v.muted = true; var q = v.play(); if (q && q.catch) q.catch(endAct);
+    });
+    setTimeout(function () { if (acting === v) idle.pause(); }, 160);   // idle keeps moving under the fade-in
+    setBgm();
+    return true;
+  }
+  function toIdle(frame, hide) {                      // idle jumps to the matching frame while hidden, then a cut
+    var done = false;
+    function swap() { if (done) return; done = true; hide(); if (!acting && !stage.classList.contains('turning')) idle.play(); }
+    idle.addEventListener('seeked', swap, { once: true });
+    idle.pause(); idle.currentTime = frame / 24 + 0.001; setTimeout(swap, 300);
+  }
+  function endAct() {
+    if (!acting) return;
+    var v = acting, name = v.id.slice(4);
+    if (v === acts.intro) { introDone = true; showName(false); }
+    acting = null; asleep = false; armSleep(); setBgm();
+    if (dozing) { dozing = waking = false; loopV.playbackRate = 1; loopV.classList.remove('on'); loopV.pause(); }
+    toIdle(IDLE_AT[name] || 0, function () {
+      if (acting === v) return;
+      v.classList.add('cut'); v.classList.remove('on'); setTimeout(function () { v.classList.remove('cut'); }, 60);
+    });
+  }
+  /* ---- the name: lands when he says it ---- */
+  function showName(animate) {
+    if (stage.classList.contains('named')) return;
+    stage.classList.add('named'); if (animate) stage.classList.add('smack');
+  }
+  (function watchName() {
+    if (stage.classList.contains('named')) return;
+    if (acting === acts.intro && acts.intro.currentTime >= NAME_AT) showName(true);
+    requestAnimationFrame(watchName);
+  })();
+  // Asleep: a separate clip (sleep-loop.mp4, the sleeping part with its end melted into its start) fades in over
+  // the sleep clip and loops by itself. A touch fades back to the sleep clip, which carries on from where he stirs.
+  var loopV = document.createElement('video'), dozing = false, waking = false;
+  loopV.className = 'act'; loopV.id = 'act-sleeploop'; loopV.src = 'media/sleep-loop.mp4'; loopV.loop = true;
+  loopV.muted = true; loopV.playsInline = true; loopV.setAttribute('playsinline', ''); loopV.preload = 'none';
+  stage.insertBefore(loopV, turn);
+  // The loop clip is frames 62 to 125 of the sleep clip plus a join back to 62. Going in is a cut on frame 62.
+  // A touch runs the loop on quickly to frame 125, then cuts to frame 126 of the sleep clip: the same motion.
+  var LOOP_LAST = 63 / 24;
+  function wake() {
+    if (!asleep) return; asleep = false;
+    if (!dozing) return;                              // still nodding off: he finishes the clip and wakes by himself
+    waking = true; loopV.muted = true; loopV.playbackRate = 3;
+  }
+  function hideNow(el) { el.classList.add('cut'); el.classList.remove('on'); setTimeout(function () { el.classList.remove('cut'); }, 60); }
+  (function watch() {
+    if (acting === acts.sleep) {
+      var t = acts.sleep.currentTime, lt = loopV.currentTime;
+      if (asleep && !dozing && t >= SLEEP_IN && loopV.readyState >= 2) {
+        dozing = true; loopV.muted = acts.sleep.muted; loopV.playbackRate = 1; loopV.currentTime = 0;
+        var p = loopV.play(); if (p && p.catch) p.catch(function () { loopV.muted = true; loopV.play(); });
+        loopV.classList.add('cut'); loopV.classList.add('on');
+        setTimeout(function () { loopV.classList.remove('cut'); if (dozing) { acts.sleep.pause(); acts.sleep.currentTime = SLEEP_OUT + 0.001; } }, 120);
+      } else if (waking && lt > LOOP_LAST - 0.3 && lt < LOOP_LAST) loopV.playbackRate = 1;
+      else if (waking && lt >= LOOP_LAST - 0.01) {
+        waking = dozing = false; loopV.playbackRate = 1; acts.sleep.play(); hideNow(loopV); loopV.pause();
+      }
+    }
+    requestAnimationFrame(watch);
+  })();
+  function armSleep() { clearTimeout(sleepTimer); if (waiting) return; sleepTimer = setTimeout(function () { if (!down) play('sleep'); else armSleep(); }, SLEEP_AFTER); }
+
+  /* ---- the opening: the page waits, silent, until the first touch (phones allow no sound before one) ---- */
+  var waitVideo = document.getElementById('wait'), waiting = !new URLSearchParams(location.search).has('idle');
+  function start() {
+    if (!waiting) return;
+    waiting = false;
+    // The intro (he crawls in and introduces himself, with the owner's voice) starts inside this touch, which is
+    // what lets the phone play its sound. The waiting picture stays up until the intro is really playing.
+    var v = acts.intro;
+    v.addEventListener('playing', function () { stage.classList.add('started'); waitVideo.pause(); loadMoves(); }, { once: true });
+    play('intro', true);
+  }
+  if (!waiting) { stage.classList.add('started'); showName(false); idle.play(); armSleep(); loadMoves(); }
+  window.__start = start;
+  window.__play = play;
+
+  /* ---- turning: a real turntable. 96 stills from an even 360 degree clip made for it (same pose as idle, so
+     it starts and ends on the idle picture). One clean still at a time, never two blended. The stills are
+     placed by the angle he really faces, so a drag turns him at an even speed; he follows the finger. ---- */
+  var tctx = turn.getContext('2d'), STILLS = [], backTimer = null, raf = null, drawn = -1;
+  var KEYS = [[0, 0], [90, 48], [180, 87], [270, 132], [360, 191]];   // angle, frame of the clip (192 frames)
+  function loadTurn() {
+    if (STILLS.length) return;
+    for (var i = 0; i < 96; i++) { var im = new Image(); im.src = 'media/turn2/t_' + ('00' + i).slice(-3) + '.jpg'; STILLS.push(im); }
+  }
+  var want = 0, shown = 0, vel = 0, homing = false;   // degrees
+  function ok(im) { return im && im.complete && im.naturalWidth; }
+  function drawTurn(deg) {
+    var d = ((deg % 360) + 360) % 360, k = 0;
+    while (k < KEYS.length - 2 && KEYS[k + 1][0] <= d) k++;
+    var f = KEYS[k][1] + (d - KEYS[k][0]) / (KEYS[k + 1][0] - KEYS[k][0]) * (KEYS[k + 1][1] - KEYS[k][1]);
+    var i = Math.round(f / 2) % 96;
+    for (var n = 0; n < 8 && !ok(STILLS[i]); n++) i = (i + 95) % 96;      // not loaded yet: the nearest one that is
+    if (!ok(STILLS[i]) || i === drawn) return;
+    drawn = i; tctx.drawImage(STILLS[i], 0, 0, turn.width, turn.height);
+  }
+  window.__turn = function () { return { want: want, shown: shown, homing: homing, still: drawn }; };
+  function leaveTurn() { stage.classList.remove('turning'); shown = want = vel = 0; homing = false; }
+  function tick() {
+    raf = null;
+    if (!stage.classList.contains('turning')) return;
+    if (homing) {                                     // ease back to the front by the shorter way
+      var home = Math.round(shown / 360) * 360;
+      want = home; shown += (home - shown) * 0.1;
+      if (Math.abs(home - shown) < 1) {
+        shown = want = 0; homing = false; drawTurn(0);
+        toIdle(0, function () { turn.classList.add('cut'); stage.classList.remove('turning'); setTimeout(function () { turn.classList.remove('cut'); }, 60); });
+        return;
+      }
+    } else {
+      if (!down) { want += vel; vel *= 0.93; }          // a flick keeps him spinning a little
+      shown += (want - shown) * 0.35;
+    }
+    drawTurn(shown);
+    raf = requestAnimationFrame(tick);
+  }
+  function spin() { if (!raf) raf = requestAnimationFrame(tick); }
+  function stopReturn() { clearTimeout(backTimer); homing = false; }
+  function goFront() { homing = true; vel = 0; spin(); }
+
+  /* ---- the drawing trail ---- */
+  function sizeInk() { ink.width = stage.clientWidth; ink.height = stage.clientHeight; }
+  sizeInk(); window.addEventListener('resize', sizeInk);
+  var fadeTimer = null;
+  function drawTrail(pts) {
+    ctx.clearRect(0, 0, ink.width, ink.height);
+    if (pts.length < 2) return;
+    ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(255,72,120,.9)'; ctx.shadowColor = 'rgba(255,255,255,.9)'; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+  }
+  function fadeTrail() {
+    clearInterval(fadeTimer); var a = 1;
+    fadeTimer = setInterval(function () {
+      a -= 0.12; ink.style.opacity = Math.max(a, 0);
+      if (a <= 0) { clearInterval(fadeTimer); ctx.clearRect(0, 0, ink.width, ink.height); ink.style.opacity = 1; }
+    }, 30);
+  }
+
+  /* ---- reading a drawn shape ---- */
+  function box(pts) {
+    var b = { x0: 1e9, x1: -1e9, y0: 1e9, y1: -1e9 };
+    pts.forEach(function (p) { b.x0 = Math.min(b.x0, p.x); b.x1 = Math.max(b.x1, p.x); b.y0 = Math.min(b.y0, p.y); b.y1 = Math.max(b.y1, p.y); });
+    b.w = b.x1 - b.x0; b.h = b.y1 - b.y0; return b;
+  }
+  // heart: two bumps on top with a dip between them, and a point at the bottom
+  function isHeart(pts) {
+    if (pts.length < 12) return false;
+    var b = box(pts);
+    if (b.w < 70 || b.h < 70 || b.w / b.h < 0.55 || b.w / b.h > 1.8) return false;
+    var topL = 2, topR = 2, dip = -1, botX = 0.5, botY = -1, lowMin = 2, lowMax = -1;
+    pts.forEach(function (p) {
+      var x = (p.x - b.x0) / b.w, y = (p.y - b.y0) / b.h;
+      if (x < 0.4) topL = Math.min(topL, y); else if (x > 0.6) topR = Math.min(topR, y);
+      if (x > 0.42 && x < 0.58 && y < 0.45) dip = Math.max(dip, y);
+      if (y > botY) { botY = y; botX = x; }
+      if (y > 0.82) { lowMin = Math.min(lowMin, x); lowMax = Math.max(lowMax, x); }
+    });
+    return topL < 0.15 && topR < 0.15 && dip > 0.12 && botX > 0.28 && botX < 0.72 && (lowMax - lowMin) < 0.5;
+  }
+  // circle: a closed loop that goes all the way round at a fairly even distance from its middle
+  function isCircle(pts) {
+    if (pts.length < 12) return false;
+    var b = box(pts), a = pts[0], z = pts[pts.length - 1];
+    if (b.w < 80 || b.h < 80 || b.w / b.h < 0.6 || b.w / b.h > 1.67) return false;
+    if (Math.hypot(a.x - z.x, a.y - z.y) > 0.4 * Math.max(b.w, b.h)) return false;
+    var cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, sum = 0, rs = [], seen = {};
+    pts.forEach(function (p) {
+      var r = Math.hypot((p.x - cx) / b.w, (p.y - cy) / b.h); rs.push(r); sum += r;
+      seen[Math.floor((Math.atan2(p.y - cy, p.x - cx) + Math.PI) / (Math.PI / 6)) % 12] = 1;
+    });
+    var mean = sum / rs.length, dev = 0;
+    rs.forEach(function (r) { dev += (r - mean) * (r - mean); });
+    return Math.sqrt(dev / rs.length) / mean < 0.2 && Object.keys(seen).length >= 10;
+  }
+  // straight swipe up or down: tall, narrow, and it never doubles back
+  function swipe(pts) {
+    var b = box(pts), dy = pts[pts.length - 1].y - pts[0].y;
+    if (b.h < 110 || b.w > 0.4 * b.h || Math.abs(dy) < 0.85 * b.h) return null;
+    return dy < 0 ? 'up' : 'down';
+  }
+
+  /* ---- one pointer handler sorts every touch ---- */
+  var down = false, mode = null, pts = [], f0 = 0, lastDx = 0, taps = 0, tapTimer = null, holdTimer = null, swallow = false,
+      strokes = [], strokeTimer = null;
+  function pos(e) { var r = stage.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+  stage.addEventListener('pointerdown', function (e) {
+    if (e.target.closest('.ig')) return;
+    askMotion(); bless();
+    if (waiting) { start(); swallow = true; down = true; mode = null; pts = [pos(e)]; return; }   // the first touch only starts him
+    if (asleep) { wake(); swallow = true; down = true; mode = null; pts = [pos(e)]; return; }   // this touch only wakes him
+    swallow = false; down = true; mode = null; pts = [pos(e)]; stopReturn(); armSleep();
+    f0 = stage.classList.contains('turning') ? want : 0; vel = 0; lastDx = 0;
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(function () {              // press and hold without moving
+      if (down && !mode && !stage.classList.contains('turning')) { swallow = true; taps = 0; clearTimeout(tapTimer); play('laugh'); }
+    }, 650);
+  });
+  stage.addEventListener('pointermove', function (e) {
+    if (!down || swallow) return;
+    var p = pos(e); pts.push(p);
+    var b = box(pts), dx = p.x - pts[0].x;
+    if (!mode && Math.abs(dx) < 10 && b.h < 10) return;
+    clearTimeout(holdTimer);
+    if (!mode) mode = Math.abs(dx) > b.h * 1.2 ? 'turn' : 'draw';
+    else if (mode === 'turn' && b.h > 110 && b.h > b.w * 0.7) {       // it became a shape after all
+      mode = 'draw'; leaveTurn(); if (!acting) idle.play();
+    }
+    if (mode === 'turn' && !acting) {
+      if (!stage.classList.contains('turning')) { loadTurn(); shown = want = f0 = 0; drawn = -1; drawTurn(0); stage.classList.add('turning'); idle.pause(); }
+      want = f0 + dx / stage.clientWidth * 360;         // a drag across the whole screen is most of a full turn
+      vel = vel * 0.6 + (dx - lastDx) / stage.clientWidth * 360 * 0.4; lastDx = dx; spin();
+    }
+    if (mode === 'draw') { clearInterval(fadeTimer); ink.style.opacity = 1; drawTrail([].concat.apply([], strokes).concat(pts)); }
+  });
+  function up() {
+    if (!down) return; down = false; clearTimeout(holdTimer);
+    if (swallow) { swallow = false; return; }
+    if (mode === 'turn') { spin(); backTimer = setTimeout(goFront, 2200); return; }
+    if (mode === 'draw') {
+      // a heart may be drawn in one stroke or two, so strokes are kept for a moment and tested together
+      strokes.push(pts); clearTimeout(strokeTimer);
+      var all = [].concat.apply([], strokes), move = null, sw = strokes.length === 1 ? swipe(pts) : null;
+      if (isHeart(all)) move = 'love';
+      else if (sw) move = sw === 'up' ? 'kick' : 'pockets';
+      else if (isCircle(pts)) move = 'flip';
+      if (move) { strokes = []; fadeTrail(); play(move); return; }
+      strokeTimer = setTimeout(function () { strokes = []; fadeTrail(); }, 900);
+      return;
+    }
+    // no movement: a tap. Count taps until they stop: 1 = goggles (only on them), 2 or 3 = wall, 4 or more = knock
+    var p = pts[0]; taps++; clearTimeout(tapTimer);
+    tapTimer = setTimeout(function () {
+      var n = taps; taps = 0;
+      if (n >= 4) play('knock');
+      else if (n >= 2) play('wall');
+      else {
+        var x = p.x / stage.clientWidth, y = p.y / stage.clientHeight;
+        if (x > 0.3 && x < 0.72 && y > 0.21 && y < 0.3 && !stage.classList.contains('turning')) play('goggles');
+      }
+    }, 330);
+  }
+  stage.addEventListener('pointerup', up);
+  stage.addEventListener('pointercancel', up);
+  stage.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  /* ---- shake the phone ---- */
+  var motionAsked = false, last = null, jolts = [];
+  window.__motion = function (x, y, z) { onMotion({ accelerationIncludingGravity: { x: x, y: y, z: z } }); };   // for testing
+  function onMotion(e) {
+    var a = e.accelerationIncludingGravity; if (!a || a.x === null) return;
+    if (last) {
+      var d = Math.abs(a.x - last.x) + Math.abs(a.y - last.y) + Math.abs(a.z - last.z), now = Date.now();
+      if (d > 24) { jolts.push(now); jolts = jolts.filter(function (t) { return now - t < 700; }); }
+      if (jolts.length >= 3) { jolts = []; if (asleep) wake(); else play('dizzy'); }
+    }
+    last = { x: a.x, y: a.y, z: a.z };
+  }
+  function askMotion() {                              // iPhones only give motion after a touch and a yes from the visitor
+    if (motionAsked) return; motionAsked = true;
+    try {
+      if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission().then(function (r) { if (r === 'granted') window.addEventListener('devicemotion', onMotion); }).catch(function () {});
+      } else window.addEventListener('devicemotion', onMotion);
+    } catch (err) {}
+  }
+
+  /* ---- number keys, for trying the moves on a computer ---- */
+  window.addEventListener('keydown', function (e) {
+    var k = '1234567890'.indexOf(e.key);
+    if (k < 0) return;
+    bless();
+    if (waiting) { start(); return; }
+    if (asleep) { wake(); return; }
+    play(NAMES[k]);
+  });
+})();
+</script>
+</body>
+</html>
