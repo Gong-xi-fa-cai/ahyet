@@ -4,6 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>AHYET</title>
+<meta name="description" content="Tap to meet AHYET, the strong, independent tiger.">
+<meta name="theme-color" content="#ecca86">
+<meta name="apple-mobile-web-app-title" content="AHYET">
+<meta property="og:site_name" content="AHYET">
+<meta property="og:title" content="AHYET">
+<meta property="og:description" content="Tap to meet AHYET, the strong, independent tiger.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://ahyet.pages.dev/">
+<meta property="og:image" content="https://ahyet.pages.dev/media/share.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="media/icon.png">
+<link rel="apple-touch-icon" href="media/icon.png">
 <style>
   :root { --ink:#3a2413; --card:#fffaf0; --accent:#b3172a; --bg:#ecca86; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -20,7 +32,13 @@
   .stage video { object-fit:cover; }
   .stage canvas.turn, .stage video.act { opacity:0; transition:opacity .12s linear; }
   .stage .cut { transition:none !important; }       /* a straight cut: both pictures are the same frame */
-  #wait { z-index:1; }                      /* the opening: he hides at the edge until the first touch */
+  #wait { z-index:1; }
+  /* no play button, ever: iPhones draw one on a video they may not start (Low Power Mode); the picture under it
+     is the same opening, so the page looks right and the first touch starts everything */
+  .stage { background:#ecca86 url(media/wait-poster.jpg) center/cover no-repeat; }
+  video::-webkit-media-controls, video::-webkit-media-controls-panel,
+  video::-webkit-media-controls-start-playback-button, video::-webkit-media-controls-overlay-play-button
+    { display:none !important; -webkit-appearance:none; opacity:0 !important; }                      /* the opening: he hides at the edge until the first touch */
   #wait { transition:opacity .3s linear; }
   .stage.started #wait { opacity:0; }             /* the opening dissolves into the intro: no cut */
   .stage:not(.started) .ig { display:none; }
@@ -98,7 +116,7 @@
   // from that frame, so going back to idle is a straight cut between two identical pictures: no dissolve.
   var IDLE_AT = { wall: 3, goggles: 0, knock: 3, dizzy: 1, sleep: 47, kick: 0, laugh: 1, pockets: 142, flip: 4 };
   var OWN_MUSIC = ['love', 'intro'];                  // these carry their own music: the page music stops for them
-  var NAME_AT = 38.0;                                 // seconds into the intro: he says "AHYET" at 38.2, the name lands on it
+  var NAME_AT = 38.06;                                // seconds into the intro: he says "AHYET" at 38.26, the name lands on it
   var acts = {}, acting = null, asleep = false, sleepTimer = null;
   var introDone = new URLSearchParams(location.search).has('idle');
 
@@ -240,7 +258,7 @@
     v.addEventListener('playing', function () { stage.classList.add('started'); waitVideo.pause(); loadMoves(); }, { once: true });
     play('intro', true);
   }
-  if (!waiting) { stage.classList.add('started'); showName(false); idle.play(); armSleep(); loadMoves(); }
+  if (!waiting) { stage.classList.add('started'); waitVideo.pause(); showName(false); idle.play(); armSleep(); loadMoves(); }
   window.__start = start;
   window.__play = play;
 
@@ -359,7 +377,7 @@
 
   stage.addEventListener('pointerdown', function (e) {
     if (e.target.closest('.ig')) return;
-    askMotion(); bless();
+    bless();
     if (waiting) { start(); swallow = true; down = true; mode = null; pts = [pos(e)]; return; }   // the first touch only starts him
     if (asleep) { wake(); swallow = true; down = true; mode = null; pts = [pos(e)]; return; }   // this touch only wakes him
     swallow = false; down = true; mode = null; pts = [pos(e)]; stopReturn(); armSleep();
@@ -418,26 +436,58 @@
   stage.addEventListener('pointercancel', up);
   stage.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
-  /* ---- shake the phone ---- */
-  var motionAsked = false, last = null, jolts = [];
-  window.__motion = function (x, y, z) { onMotion({ accelerationIncludingGravity: { x: x, y: y, z: z } }); };   // for testing
+  /* ---- shake the phone ----
+     A shake is three hard jolts within 1.2 s: the phone's own movement (gravity taken out) above 10 m/s2, at
+     least 0.15 s apart. The first draft compared two readings 1/60 s apart, which a real shake never reached. */
+  var motionState = 'no', grav = null, peaks = [], lastShake = 0;
+  window.__motion = function (x, y, z) { onMotion({ acceleration: { x: x, y: y, z: z } }); };   // for testing
+  window.__motionState = function () { return motionState; };
   function onMotion(e) {
-    var a = e.accelerationIncludingGravity; if (!a || a.x === null) return;
-    if (last) {
-      var d = Math.abs(a.x - last.x) + Math.abs(a.y - last.y) + Math.abs(a.z - last.z), now = Date.now();
-      if (d > 24) { jolts.push(now); jolts = jolts.filter(function (t) { return now - t < 700; }); }
-      if (jolts.length >= 3) { jolts = []; if (asleep) wake(); else play('dizzy'); }
+    var a = e.acceleration, g = e.accelerationIncludingGravity, x, y, z;
+    if (a && a.x !== null && a.x !== undefined && (a.x || a.y || a.z)) { x = a.x; y = a.y; z = a.z; }
+    else if (g && g.x !== null && g.x !== undefined) {            // no gravity-free reading: take gravity out ourselves
+      if (!grav) grav = { x: g.x, y: g.y, z: g.z };
+      grav.x += (g.x - grav.x) * 0.08; grav.y += (g.y - grav.y) * 0.08; grav.z += (g.z - grav.z) * 0.08;
+      x = g.x - grav.x; y = g.y - grav.y; z = g.z - grav.z;
+    } else return;
+    var m = Math.sqrt(x * x + y * y + z * z), now = Date.now();
+    if (m > 10 && now - (peaks.length ? peaks[peaks.length - 1] : 0) > 150) peaks.push(now);
+    peaks = peaks.filter(function (t) { return now - t < 1200; });
+    if (peaks.length >= 3 && now - lastShake > 2500 && !waiting) {
+      peaks = []; lastShake = now;
+      if (asleep) wake(); else play('dizzy');
     }
-    last = { x: a.x, y: a.y, z: a.z };
   }
-  function askMotion() {                              // iPhones only give motion after a touch and a yes from the visitor
-    if (motionAsked) return; motionAsked = true;
+  function askMotion() {                              // iPhones only give motion after a finished touch and a yes
+    if (motionState !== 'no') return;
     try {
       if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
-        DeviceMotionEvent.requestPermission().then(function (r) { if (r === 'granted') window.addEventListener('devicemotion', onMotion); }).catch(function () {});
-      } else window.addEventListener('devicemotion', onMotion);
-    } catch (err) {}
+        motionState = 'asking';
+        DeviceMotionEvent.requestPermission().then(function (r) {
+          motionState = r === 'granted' ? 'on' : 'denied';
+          if (r === 'granted') window.addEventListener('devicemotion', onMotion);
+        }).catch(function () { motionState = 'no'; });  // asked outside a touch: ask again on the next one
+      } else { motionState = 'on'; window.addEventListener('devicemotion', onMotion); }
+    } catch (err) { motionState = 'no'; }
   }
+
+  /* ---- the end of every touch: the only moment an iPhone allows motion, sound and later video plays.
+     Every move video is started and paused once here, so a move that starts from a timer or a shake (not
+     from a touch) may still play; Low Power Mode blocks those otherwise. ---- */
+  var unlocked = false;
+  function unlockVideos() {
+    if (unlocked || waiting) return; unlocked = true;
+    [idle, loopV].concat(NAMES.map(function (n) { return acts[n]; })).forEach(function (v) {
+      if (v === acting || v === acts.intro || !v.paused) return;
+      var wasMuted = v.muted; v.muted = true;
+      var p = v.play(); if (p && p.catch) p.catch(function () {});
+      v.pause(); v.muted = wasMuted;
+    });
+  }
+  function gestureEnd() { askMotion(); bless(); unlockVideos(); }
+  stage.addEventListener('pointerup', gestureEnd);
+  document.addEventListener('touchend', gestureEnd, { passive: true });
+  document.addEventListener('click', gestureEnd);
 
   /* ---- number keys, for trying the moves on a computer ---- */
   window.addEventListener('keydown', function (e) {
