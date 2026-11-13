@@ -249,6 +249,12 @@
 
   /* ---- the opening: the page waits, silent, until the first touch (phones allow no sound before one) ---- */
   var waitVideo = document.getElementById('wait'), waiting = !new URLSearchParams(location.search).has('idle');
+  // Second guard against the iPhone play button: if the phone will not start the opening loop by itself, the
+  // video is taken off the screen and the same opening picture (the stage background) shows instead.
+  (function () {
+    var wp = waitVideo.play();
+    if (wp && wp.catch) wp.catch(function () { if (waiting) waitVideo.style.visibility = 'hidden'; });
+  })();
   function start() {
     if (!waiting) return;
     waiting = false;
