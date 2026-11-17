@@ -12,3 +12,4 @@ The music is "Boom Bap Old School Groove" by alex-morgan (Pixabay Content Licens
 ## Changes
 - 2026-11-13: first version online (intro, eleven hidden moves, 360 degree turn, page music).
 - 2026-11-13: no play button on iPhones; the shake works (asks for motion at the end of a touch, real shake test); lip-sync of "nice to meet you, I'm AHYET" redone; share picture and icon.
+- 2026-11-17: touches answer at once (ring + squash), taps decided in 0.23 s, moves start where he moves and play from memory; tap pauses the intro; forgiving heart and circle reader (shapes.js); louder, clearer sound.
